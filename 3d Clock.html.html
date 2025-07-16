@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Clock Prototype</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+        }
+        
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #clock-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            color: white;
+            font-size: 14px;
+        }
+        
+        .digital-time {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px 20px;
+            border-radius: 10px;
+            color: #00ff88;
+            font-family: 'Courier New', monospace;
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 0 0 10px #00ff88;
+        }
+        
+        .info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            color: white;
+            font-size: 12px;
+        }
+        
+        button {
+            background: #4CAF50;
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        button:hover {
+            background: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <canvas id="clock-canvas"></canvas>
+        
+        <div class="controls">
+            <div><strong>Premium 3D Clock</strong></div>
+            <div>• Mouse: Rotate camera</div>
+            <div>• Wheel: Zoom in/out</div>
+            <div style="margin-top: 10px;"><strong>Clock Hands:</strong></div>
+            <div>• <span style="color: #f0f0f0;">■</span> Silver: Hour hand (shortest)</div>
+            <div>• <span style="color: #ffffff;">■</span> White: Minute hand (medium)</div>
+            <div>• <span style="color: #ff0000;">■</span> Red: Second hand (longest)</div>
+            <div style="margin-top: 10px;"><strong>Markers:</strong></div>
+            <div>• <span style="color: #ff0000;">■</span> Red: Quarter hour numerals</div>
+            <div>• <span style="color: #ffffff;">■</span> White: Other numerals</div>
+            <div>• <span style="color: #ffffff;">●</span> White: Minute markers</div>
+            <div>• <span style="color: #ff0000;">●</span> Red: Second markers</div>
+            <button onclick="toggleTheme()">Toggle Theme</button>
+            <button onclick="resetCamera()">Reset View</button>
+        </div>
+        
+        <div class="digital-time" id="digital-time">00:00:00</div>
+        
+        <div class="info">
+            <div>Real-time 3D Clock with Three.js</div>
+            <div>Smooth animations • Interactive controls • Modern design</div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Global variables
+        let scene, camera, renderer, controls;
+        let clockGroup, hourHand, minuteHand, secondHand;
+        let isDarkTheme = true;
+        let animationId;
+        
+        // Colors and materials
+        const themes = {
+            dark: {
+                bg: 0x0a0a0a,
+                face: 0x1a1a1a,
+                hands: 0xffffff,
+                hourMarkers: 0xffffff,
+                accent: 0xff0000,
+                rim: 0x333333,
+                pivot: 0x888888
+            },
+            light: {
+                bg: 0xf0f0f0,
+                face: 0xffffff,
+                hands: 0x333333,
+                hourMarkers: 0x666666,
+                accent: 0xff6b6b,
+                rim: 0xcccccc,
+                pivot: 0x999999
+            }
+        };
+        
+        // Initialize the 3D scene
+        function init() {
+            // Scene setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(themes.dark.bg);
+            
+            // Camera setup
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 0, 8);
+            
+            // Renderer setup
+            renderer = new THREE.WebGLRenderer({ 
+                canvas: document.getElementById('clock-canvas'),
+                antialias: true 
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            
+            // Lighting setup
+            setupLighting();
+            
+            // Create clock
+            createClock();
+            
+            // Mouse controls
+            setupControls();
+            
+            // Start animation loop
+            animate();
+            
+            // Update digital time
+            updateDigitalTime();
+            setInterval(updateDigitalTime, 1000);
+        }
+        
+        function setupLighting() {
+            // Ambient light
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+            scene.add(ambientLight);
+            
+            // Main directional light
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(5, 5, 5);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            scene.add(directionalLight);
+            
+            // Point light for accent
+            const pointLight = new THREE.PointLight(themes.dark.accent, 0.5, 100);
+            pointLight.position.set(0, 0, 5);
+            scene.add(pointLight);
+        }
+        
+        function createClock() {
+            clockGroup = new THREE.Group();
+            
+            // Clock base/face (black)
+            const faceGeometry = new THREE.CylinderGeometry(3, 3, 0.3, 64);
+            const faceMaterial = new THREE.MeshPhongMaterial({ 
+                color: themes.dark.face,
+                shininess: 80,
+                specular: 0x444444
+            });
+            const clockFace = new THREE.Mesh(faceGeometry, faceMaterial);
+            clockFace.receiveShadow = true;
+            clockFace.castShadow = true;
+            clockGroup.add(clockFace);
+            
+            // Clock rim (dark gray)
+            const rimGeometry = new THREE.TorusGeometry(3, 0.15, 16, 100);
+            const rimMaterial = new THREE.MeshPhongMaterial({ 
+                color: themes.dark.rim,
+                shininess: 100,
+                specular: 0x666666
+            });
+            const rim = new THREE.Mesh(rimGeometry, rimMaterial);
+            rim.rotation.x = Math.PI / 2;
+            rim.castShadow = true;
+            clockGroup.add(rim);
+            
+            // Hour markers and numerals
+            createHourMarkers();
+            
+            // Minute markers (small white dots)
+            createMinuteMarkers();
+            
+            // Second markers (tiny red dots)
+            createSecondMarkers();
+            
+            // Center pivot (metallic)
+            const pivotGeometry = new THREE.CylinderGeometry(0.12, 0.12, 0.4, 32);
+            const pivotMaterial = new THREE.MeshPhongMaterial({ 
+                color: themes.dark.pivot,
+                shininess: 150,
+                specular: 0xffffff
+            });
+            const pivot = new THREE.Mesh(pivotGeometry, pivotMaterial);
+            pivot.position.z = 0.2;
+            pivot.castShadow = true;
+            clockGroup.add(pivot);
+            
+            // Clock hands
+            createClockHands();
+            
+            scene.add(clockGroup);
+        }
+        
+        function createHourMarkers() {
+            const markerGroup = new THREE.Group();
+            
+            // Roman numerals array
+            const romanNumerals = ['XII', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI'];
+            
+            for (let i = 0; i < 12; i++) {
+                const angle = (i * Math.PI) / 6;
+                const romanNum = romanNumerals[i];
+                
+                // Create 3D Roman numeral text (white and red)
+                createRomanNumeral(romanNum, angle, markerGroup, i);
+                
+                // Add decorative gems at quarter positions (3, 6, 9, 12)
+                if (i % 3 === 0) {
+                    const gemGeometry = new THREE.OctahedronGeometry(0.08, 0);
+                    const gemMaterial = new THREE.MeshPhongMaterial({ 
+                        color: themes.dark.accent,
+                        shininess: 200,
+                        specular: 0xffffff,
+                        transparent: true,
+                        opacity: 0.9
+                    });
+                    const gem = new THREE.Mesh(gemGeometry, gemMaterial);
+                    
+                    const radius = 2.1;
+                    gem.position.x = Math.sin(angle) * radius;
+                    gem.position.y = Math.cos(angle) * radius;
+                    gem.position.z = 0.3;
+                    
+                    gem.castShadow = true;
+                    markerGroup.add(gem);
+                }
+            }
+            
+            clockGroup.add(markerGroup);
+        }
+        
+        function createMinuteMarkers() {
+            const minuteGroup = new THREE.Group();
+            
+            for (let i = 0; i < 60; i++) {
+                // Skip positions where hour markers are
+                if (i % 5 !== 0) {
+                    const angle = (i * Math.PI) / 30;
+                    
+                    const markerGeometry = new THREE.CylinderGeometry(0.02, 0.02, 0.1, 8);
+                    const markerMaterial = new THREE.MeshPhongMaterial({ 
+                        color: themes.dark.hourMarkers,
+                        shininess: 100
+                    });
+                    const marker = new THREE.Mesh(markerGeometry, markerMaterial);
+                    
+                    const radius = 2.7;
+                    marker.position.x = Math.sin(angle) * radius;
+                    marker.position.y = Math.cos(angle) * radius;
+                    marker.position.z = 0.2;
+                    
+                    marker.castShadow = true;
+                    minuteGroup.add(marker);
+                }
+            }
+            
+            clockGroup.add(minuteGroup);
+        }
+        
+        function createSecondMarkers() {
+            const secondGroup = new THREE.Group();
+            
+            for (let i = 0; i < 60; i++) {
+                const angle = (i * Math.PI) / 30;
+                
+                const markerGeometry = new THREE.SphereGeometry(0.008, 8, 8);
+                const markerMaterial = new THREE.MeshPhongMaterial({ 
+                    color: i % 5 === 0 ? themes.dark.accent : themes.dark.accent,
+                    shininess: 150,
+                    transparent: true,
+                    opacity: 0.7
+                });
+                const marker = new THREE.Mesh(markerGeometry, markerMaterial);
+                
+                const radius = 2.85;
+                marker.position.x = Math.sin(angle) * radius;
+                marker.position.y = Math.cos(angle) * radius;
+                marker.position.z = 0.18;
+                
+                secondGroup.add(marker);
+            }
+            
+            clockGroup.add(secondGroup);
+        }
+        
+        function createRomanNumeral(numeral, angle, parent, index) {
+            const numeralGroup = new THREE.Group();
+            
+            // Alternate between white and red numerals
+            const isRed = index % 3 === 0; // Make quarter hour positions red
+            const color = isRed ? themes.dark.accent : themes.dark.hourMarkers;
+            
+            // Create each character of the Roman numeral
+            for (let i = 0; i < numeral.length; i++) {
+                const char = numeral[i];
+                const charMesh = createRomanCharacter(char, color);
+                charMesh.position.x = (i - (numeral.length - 1) / 2) * 0.18;
+                numeralGroup.add(charMesh);
+            }
+            
+            // Position the numeral around the clock face
+            const radius = 2.4;
+            numeralGroup.position.x = Math.sin(angle) * radius;
+            numeralGroup.position.y = Math.cos(angle) * radius;
+            numeralGroup.position.z = 0.2;
+            
+            // Rotate numeral to face outward
+            numeralGroup.rotation.z = -angle;
+            
+            parent.add(numeralGroup);
+        }
+        
+        function createRomanCharacter(char, color) {
+            let geometry;
+            
+            // Create different geometries for each Roman numeral character
+            switch (char) {
+                case 'I':
+                    geometry = new THREE.BoxGeometry(0.03, 0.35, 0.08);
+                    break;
+                case 'V':
+                    // Create V shape using two angled boxes
+                    const vGroup = new THREE.Group();
+                    const leftV = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.25, 0.08), 
+                        new THREE.MeshPhongMaterial({ color: color, shininess: 100 }));
+                    const rightV = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.25, 0.08), 
+                        new THREE.MeshPhongMaterial({ color: color, shininess: 100 }));
+                    
+                    leftV.position.set(-0.06, 0.06, 0);
+                    rightV.position.set(0.06, 0.06, 0);
+                    leftV.rotation.z = Math.PI / 8;
+                    rightV.rotation.z = -Math.PI / 8;
+                    
+                    leftV.castShadow = true;
+                    rightV.castShadow = true;
+                    
+                    vGroup.add(leftV);
+                    vGroup.add(rightV);
+                    return vGroup;
+                    
+                case 'X':
+                    // Create X shape using two crossed boxes
+                    const xGroup = new THREE.Group();
+                    const leftX = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.3, 0.08), 
+                        new THREE.MeshPhongMaterial({ color: color, shininess: 100 }));
+                    const rightX = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.3, 0.08), 
+                        new THREE.MeshPhongMaterial({ color: color, shininess: 100 }));
+                    
+                    leftX.rotation.z = Math.PI / 4;
+                    rightX.rotation.z = -Math.PI / 4;
+                    
+                    leftX.castShadow = true;
+                    rightX.castShadow = true;
+                    
+                    xGroup.add(leftX);
+                    xGroup.add(rightX);
+                    return xGroup;
+                    
+                default:
+                    geometry = new THREE.BoxGeometry(0.03, 0.35, 0.08);
+            }
+            
+            const material = new THREE.MeshPhongMaterial({ 
+                color: color,
+                shininess: 100
+            });
+            
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.castShadow = true;
+            return mesh;
+        }
+        
+        function createClockHands() {
+            // Hour hand (shorter, thicker, metallic white)
+            const hourHandGeometry = new THREE.BoxGeometry(0.12, 1.6, 0.06);
+            const hourHandMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0xf0f0f0,
+                shininess: 150,
+                specular: 0xffffff
+            });
+            hourHand = new THREE.Mesh(hourHandGeometry, hourHandMaterial);
+            hourHand.position.y = 0.8;
+            hourHand.position.z = 0.4;
+            hourHand.castShadow = true;
+            
+            // Add diamond tip to hour hand
+            const hourTipGeometry = new THREE.ConeGeometry(0.1, 0.25, 8);
+            const hourTipMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0xffffff,
+                shininess: 200,
+                specular: 0xffffff
+            });
+            const hourTip = new THREE.Mesh(hourTipGeometry, hourTipMaterial);
+            hourTip.position.y = 0.95;
+            hourTip.position.z = 0.02;
+            hourTip.rotation.x = Math.PI;
+            hourTip.castShadow = true;
+            hourHand.add(hourTip);
+            
+            // Minute hand (longer, medium thickness, bright white)
+            const minuteHandGeometry = new THREE.BoxGeometry(0.08, 2.4, 0.05);
+            const minuteHandMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0xffffff,
+                shininess: 150,
+                specular: 0xffffff
+            });
+            minuteHand = new THREE.Mesh(minuteHandGeometry, minuteHandMaterial);
+            minuteHand.position.y = 1.2;
+            minuteHand.position.z = 0.42;
+            minuteHand.castShadow = true;
+            
+            // Add sharp tip to minute hand
+            const minuteTipGeometry = new THREE.ConeGeometry(0.06, 0.2, 8);
+            const minuteTipMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0xffffff,
+                shininess: 200,
+                specular: 0xffffff
+            });
+            const minuteTip = new THREE.Mesh(minuteTipGeometry, minuteTipMaterial);
+            minuteTip.position.y = 1.3;
+            minuteTip.position.z = 0.02;
+            minuteTip.rotation.x = Math.PI;
+            minuteTip.castShadow = true;
+            minuteHand.add(minuteTip);
+            
+            // Second hand (longest, thinnest, bright red)
+            const secondHandGeometry = new THREE.BoxGeometry(0.03, 2.6, 0.03);
+            const secondHandMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0xff0000,
+                shininess: 200,
+                specular: 0xffffff
+            });
+            secondHand = new THREE.Mesh(secondHandGeometry, secondHandMaterial);
+            secondHand.position.y = 1.3;
+            secondHand.position.z = 0.44;
+            secondHand.castShadow = true;
+            
+            // Add counterweight to second hand
+            const counterWeightGeometry = new THREE.CylinderGeometry(0.06, 0.06, 0.3, 16);
+            const counterWeight = new THREE.Mesh(counterWeightGeometry, secondHandMaterial);
+            counterWeight.position.y = -0.8;
+            counterWeight.position.z = 0.02;
+            counterWeight.castShadow = true;
+            secondHand.add(counterWeight);
+            
+            // Add circular tip to second hand
+            const secondTipGeometry = new THREE.SphereGeometry(0.05, 16, 16);
+            const secondTipMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0xff0000,
+                shininess: 200,
+                specular: 0xffffff
+            });
+            const secondTip = new THREE.Mesh(secondTipGeometry, secondTipMaterial);
+            secondTip.position.y = 1.25;
+            secondTip.position.z = 0.02;
+            secondTip.castShadow = true;
+            secondHand.add(secondTip);
+            
+            clockGroup.add(hourHand);
+            clockGroup.add(minuteHand);
+            clockGroup.add(secondHand);
+        }
+        
+        function setupControls() {
+            let mouseX = 0, mouseY = 0;
+            let targetRotationX = 0, targetRotationY = 0;
+            let mouseDown = false;
+            
+            document.addEventListener('mousedown', (event) => {
+                mouseDown = true;
+                mouseX = event.clientX;
+                mouseY = event.clientY;
+            });
+            
+            document.addEventListener('mouseup', () => {
+                mouseDown = false;
+            });
+            
+            document.addEventListener('mousemove', (event) => {
+                if (mouseDown) {
+                    const deltaX = event.clientX - mouseX;
+                    const deltaY = event.clientY - mouseY;
+                    
+                    targetRotationY += deltaX * 0.01;
+                    targetRotationX += deltaY * 0.01;
+                    
+                    // Limit vertical rotation
+                    targetRotationX = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, targetRotationX));
+                    
+                    mouseX = event.clientX;
+                    mouseY = event.clientY;
+                }
+            });
+            
+            document.addEventListener('wheel', (event) => {
+                camera.position.z += event.deltaY * 0.01;
+                camera.position.z = Math.max(4, Math.min(15, camera.position.z));
+            });
+            
+            // Smooth camera rotation
+            function updateCameraRotation() {
+                const rotationSpeed = 0.1;
+                clockGroup.rotation.y += (targetRotationY - clockGroup.rotation.y) * rotationSpeed;
+                clockGroup.rotation.x += (targetRotationX - clockGroup.rotation.x) * rotationSpeed;
+                requestAnimationFrame(updateCameraRotation);
+            }
+            updateCameraRotation();
+        }
+        
+        function updateClockHands() {
+            const now = new Date();
+            const hours = now.getHours() % 12;
+            const minutes = now.getMinutes();
+            const seconds = now.getSeconds();
+            
+            // Calculate rotations (negative because we want clockwise)
+            const secondAngle = -(seconds * 6) * Math.PI / 180;
+            const minuteAngle = -(minutes * 6 + seconds * 0.1) * Math.PI / 180;
+            const hourAngle = -(hours * 30 + minutes * 0.5) * Math.PI / 180;
+            
+            // Apply rotations
+            secondHand.rotation.z = secondAngle;
+            minuteHand.rotation.z = minuteAngle;
+            hourHand.rotation.z = hourAngle;
+        }
+        
+        function updateDigitalTime() {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString();
+            document.getElementById('digital-time').textContent = timeString;
+        }
+        
+        function toggleTheme() {
+            isDarkTheme = !isDarkTheme;
+            const theme = isDarkTheme ? themes.dark : themes.light;
+            
+            scene.background = new THREE.Color(theme.bg);
+            
+            // Update materials would go here
+            // For simplicity, we'll just change the scene background
+        }
+        
+        function resetCamera() {
+            camera.position.set(0, 0, 8);
+            clockGroup.rotation.set(0, 0, 0);
+        }
+        
+        function animate() {
+            animationId = requestAnimationFrame(animate);
+            
+            // Update clock hands
+            updateClockHands();
+            
+            // Add subtle floating animation
+            clockGroup.position.y = Math.sin(Date.now() * 0.001) * 0.1;
+            
+            renderer.render(scene, camera);
+        }
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        // Initialize everything when the page loads
+        init();
+    </script>
+</body>
+</html>
